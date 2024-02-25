@@ -220,58 +220,71 @@ def main():
     N_symbols = 20  # Number of OFDM symbols per frame
     bits_per_symbol = 4  # For 16QAM
     N_bits = K_used * bits_per_symbol * N_symbols  # Total number of bits per frame
-    SNR_dB = 20  # Signal-to-Noise Ratio in dB
 
-    print("Starting OFDM simulation...")
+    snr_values = [0, 5, 10, 15, 20, 25, 30]
+    ber_values = []
 
-    # Step 1: Generate Source Bits
-    source_bits = np.random.randint(0, 2, N_bits)
-    print("Number of bits generated : " + str(source_bits.shape))
+    for SNR_dB in snr_values:
 
-    # Step 2: 16QAM Mapping
-    symbols = map_16qam(source_bits)
-    # plot_constellation(symbols, title='16QAM Constellation Diagram')
-    print("16QAM mapping completed : " + str(symbols.shape))
+        print("Starting OFDM simulation for SNR = " + str(SNR_dB) + " dB...")
 
-    # Step 3: OFDM Modulation
-    ofdm_modulated = ofdm_modulate(symbols, N_symbols, K, K_used, CP_length)
-    print("OFDM modulation completed : " + str(ofdm_modulated.shape))
+        # Step 1: Generate Source Bits
+        source_bits = np.random.randint(0, 2, N_bits)
+        print("Number of bits generated : " + str(source_bits.shape))
 
-    # Step 4: Preamble
-    # preamble_PTS = generate_preamble(K, CP_length)
-    preamble_length = K + CP_length
-    preamble = generate_zadoff_chu_seq(K, CP_length) # made so that Fourrier transform will not give zero values
-    ofdm_frame_with_preamble = insert_preamble(ofdm_modulated, preamble)
-    print("Preamble inserted : " + str(ofdm_frame_with_preamble.shape))
+        # Step 2: 16QAM Mapping
+        symbols = map_16qam(source_bits)
+        # plot_constellation(symbols, title='16QAM Constellation Diagram')
+        print("16QAM mapping completed : " + str(symbols.shape))
 
-    # Step 5: Channel Simulation
-    ofdm_frame_noisy, channel_h = fading_channel(ofdm_frame_with_preamble, SNR_dB)
-    # plot_channel_response(channel_h)
-    print("Channel simulation completed : " + str(ofdm_frame_noisy.shape))
+        # Step 3: OFDM Modulation
+        ofdm_modulated = ofdm_modulate(symbols, N_symbols, K, K_used, CP_length)
+        print("OFDM modulation completed : " + str(ofdm_modulated.shape))
 
-    # Step 6: OFDM Demodulation
-    ofdm_symbols_freq = ofdm_demodulate(ofdm_frame_noisy, N_symbols, CP_length, K)
-    print("OFDM demodulation completed : " + str(ofdm_symbols_freq.shape)) 
+        # Step 4: Preamble
+        # preamble_PTS = generate_preamble(K, CP_length)
+        preamble_length = K + CP_length
+        preamble = generate_zadoff_chu_seq(K, CP_length) # made so that Fourrier transform will not give zero values
+        ofdm_frame_with_preamble = insert_preamble(ofdm_modulated, preamble)
+        print("Preamble inserted : " + str(ofdm_frame_with_preamble.shape))
 
-    # Step 7: Channel Estimation
-    channel_estimated = channel_estimation(ofdm_frame_noisy[:preamble_length], preamble)
-    print("Channel estimation completed : " + str(channel_estimated.shape)) 
+        # Step 5: Channel Simulation
+        ofdm_frame_noisy, channel_h = fading_channel(ofdm_frame_with_preamble, SNR_dB)
+        # plot_channel_response(channel_h)
+        print("Channel simulation completed : " + str(ofdm_frame_noisy.shape))
 
-    # Step 8: Equalization
-    symbols_equalized = zf_equalize(ofdm_symbols_freq, channel_estimated, K_used, K, N_symbols)
-    print("Equalization completed : " + str(symbols_equalized.shape))
+        # Step 6: OFDM Demodulation
+        ofdm_symbols_freq = ofdm_demodulate(ofdm_frame_noisy, N_symbols, CP_length, K)
+        print("OFDM demodulation completed : " + str(ofdm_symbols_freq.shape)) 
 
-    # Step 9: Nearest Neighbor Quantization
-    symbols_quantized = nearest_neighbor_quantization(symbols_equalized)
-    print("Nearest neighbor quantization completed : " + str(symbols_quantized.shape))
+        # Step 7: Channel Estimation
+        channel_estimated = channel_estimation(ofdm_frame_noisy[:preamble_length], preamble)
+        print("Channel estimation completed : " + str(channel_estimated.shape)) 
 
-    # Step 10: Demapping 
-    demapped_bits = demap_16qam(symbols_quantized)
-    print("Coherent detection and demapping completed : " + str(demapped_bits.shape)) 
+        # Step 8: Equalization
+        symbols_equalized = zf_equalize(ofdm_symbols_freq, channel_estimated, K_used, K, N_symbols)
+        print("Equalization completed : " + str(symbols_equalized.shape))
 
-    # Step 11: BER Computation
-    ber = compute_ber(source_bits, demapped_bits) 
-    print(f"BER computation completed. BER = {ber}")
+        # Step 9: Nearest Neighbor Quantization
+        symbols_quantized = nearest_neighbor_quantization(symbols_equalized)
+        print("Nearest neighbor quantization completed : " + str(symbols_quantized.shape))
+
+        # Step 10: Demapping 
+        demapped_bits = demap_16qam(symbols_quantized)
+        print("Coherent detection and demapping completed : " + str(demapped_bits.shape)) 
+
+        # Step 11: BER Computation
+        ber = compute_ber(source_bits, demapped_bits) 
+        print(f"BER computation completed. BER = {ber}")
+        ber_values.append(ber)
+
+    plt.figure(figsize=(10, 6))
+    plt.semilogy(snr_values, ber_values, '-o')
+    plt.title('BER vs. SNR')
+    plt.xlabel('SNR (dB)')
+    plt.ylabel('Bit Error Rate (BER)')
+    plt.grid(True)
+    plt.show()
 
 if __name__ == "__main__":
     main()
