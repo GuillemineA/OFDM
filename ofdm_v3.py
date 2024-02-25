@@ -4,32 +4,27 @@ from scipy.signal import convolve2d
 
 
 def plot_constellation(symbols, title='16QAM Constellation Diagram'):
-    # Create a new figure
     plt.figure(figsize=(8, 8))
     
-    # Scatter plot of the real and imaginary parts of the symbols
     plt.scatter(symbols.real, symbols.imag, color='blue', marker='o', label='Mapped Symbols')
-    
-    # Labeling the plot
+
     plt.title(title)
     plt.xlabel('In-phase (I)')
     plt.ylabel('Quadrature (Q)')
-    plt.grid(True)  # Add grid for better readability
+    plt.grid(True)  
     plt.axhline(0, color='black', lw=0.5)
     plt.axvline(0, color='black', lw=0.5)
     plt.xlim(-4, 4)
     plt.ylim(-4, 4)
-    
-    # Adding constellation points for reference
+
     for real in [-3, -1, 1, 3]:
         for imag in [-3, -1, 1, 3]:
-            plt.plot(real, imag, 'rx')  # 'rx' makes the marker red x
+            plt.plot(real, imag, 'rx') 
     
     plt.legend()
     plt.show()
 
 def plot_channel_response(channel_h):
-    # Plot the magnitude and phase of the channel impulse response
     plt.figure(figsize=(14, 5))
     
     # Plot magnitude
@@ -52,7 +47,6 @@ def plot_channel_response(channel_h):
     plt.show()
 
 def map_16qam(bits):
-    # Define 16QAM symbol mapping (Gray coding)
     mapping = {
         (0, 0, 0, 0): -3-3j,
         (0, 0, 0, 1): -3-1j,
@@ -71,20 +65,15 @@ def map_16qam(bits):
         (1, 0, 0, 1):  3-1j,
         (1, 0, 0, 0):  3-3j,
     }
-    # Reshape bits to groups of 4
     bits_reshaped = bits.reshape((-1, 4))
     symbols = np.array([mapping[tuple(b)] for b in bits_reshaped])
     return symbols
 
-def generate_PLCP_preamble(K, CP_length):
-       
-    # Generate two long symbols based on the given L sequence
+def generate_PLCP_preamble(K, CP_length): # For synchronization
     L_sequence = [1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1, 1, 1, 1, 0, 1, -1, -1, 1, 1, -1, 1, -1, 1, -1, -1, -1, -1, -1, 1, 1, -1, -1, 1, -1, 1, -1, 1, 1, 1, 1]
 
-    # Convert the L_sequence to a numpy array for easier handling
     L_seq = np.array(L_sequence)
-    
-    # Ensure the sequence fits within the FFT size, padding with zeros if necessary
+
     if len(L_seq) < K:
         L_seq_padded = np.fft.ifftshift(np.concatenate([
             np.zeros((K - len(L_seq)) // 2),
@@ -94,79 +83,52 @@ def generate_PLCP_preamble(K, CP_length):
     else:
         L_seq_padded = L_seq
     
-    # Generate the LTS in time domain
     lts_time = np.fft.ifft(L_seq_padded)
     
-    # Prepend CP to LTS
     lts_with_cp = np.concatenate((lts_time[-CP_length:], lts_time))
     
-    # Assuming a simple STS for illustration purposes (not based on your input)
     sts = np.tile(np.array([1, -1]), K // 2)
-    sts_with_cp = np.concatenate((sts[-CP_length:], sts))  # Optionally add CP to STS if needed
+    sts_with_cp = np.concatenate((sts[-CP_length:], sts))  
     
-    # Combine STS and LTS for the complete preamble
     preamble = np.concatenate((sts_with_cp, lts_with_cp))
     
     return preamble
 
-    """ 
-    print(len(L_sequence))
-    L = np.array([0] * ((K - len(L_sequence)) // 2) + L_sequence + [0] * ((K - len(L_sequence)) // 2))
-    long_symbol_freq = np.fft.ifft(np.fft.fftshift(L))  # Convert L to frequency domain
-    long_preamble = np.tile(long_symbol_freq, (2, 1))  # Repeat long symbol 2 times
-    
-    long_preamble_with_cp = np.array([np.concatenate((symbol[-CP_length:], symbol)) for symbol in long_preamble])
-    
-    return long_preamble_with_cp """
-
-import numpy as np
-
 def generate_zadoff_chu_seq(K, CP_length):
-    # Generate the ZC sequence
     n = np.arange(K)
     zc_seq = np.exp(-1j * np.pi * 1 * n * (n + 1) / K)
     
-    # Add the cyclic prefix
-    cp = zc_seq[-CP_length:]  # Extract the last CP_length samples for the CP
-    zc_seq_with_cp = np.concatenate((cp, zc_seq))  # Prepend CP to the ZC sequence
+    cp = zc_seq[-CP_length:]  
+    zc_seq_with_cp = np.concatenate((cp, zc_seq))  
     
     return zc_seq_with_cp
 
+def ofdm_modulate(symbols, N_symbols, K, K_used, CP_length):
+    ofdm_symbols_freq_domain = np.zeros((N_symbols, K), dtype=complex)
+    
+    mid_point = K // 2
+    ofdm_symbols_freq_domain[:, mid_point - K_used//2:mid_point + K_used//2] = symbols.reshape((N_symbols, K_used))
 
-def ofdm_modulate(symbols, preamble, N_symbols, K, K_used, CP_length):
+    ofdm_symbols_time_domain = np.fft.ifft(ofdm_symbols_freq_domain, axis=1)
         
-    # Allocate space for OFDM symbols with guards and convert to time domain
-    ofdm_symbols = np.zeros((N_symbols, K), dtype=complex)
-    symbols_reshaped = symbols.reshape((N_symbols, K_used))
-    ofdm_symbols[:, (K-K_used)//2:(K+K_used)//2] = symbols_reshaped  # Place symbols in the middle
-
-    # Convert OFDM symbols from frequency to time domain using IFFT
-    ofdm_time_domain = np.fft.ifft(ofdm_symbols, axis=1)
+    ofdm_symbols_with_cp = np.hstack((ofdm_symbols_time_domain[:, -CP_length:], ofdm_symbols_time_domain))
     
-    # Add cyclic prefix
-    ofdm_time_cp = np.hstack((ofdm_time_domain[:, -CP_length:], ofdm_time_domain))
-    
-    plot_constellation(ofdm_time_cp, title="Modulated OFDM symbols")
-
-    return ofdm_time_cp
+    return ofdm_symbols_with_cp
 
 def insert_preamble(ofdm_frame, preamble):
-    # Prepend preamble to the OFDM frame
     return np.vstack((preamble, ofdm_frame))
 
 def fading_channel(ofdm_frame, SNR_dB):
     # Channel parameters
-    L = 10  # Number of channel taps
+    L = 10  
     h = np.array([np.random.normal(0, np.sqrt(2**(-l)/1.998), 1) + 1j*np.random.normal(0, np.sqrt(2**(-l)/1.998), 1) for l in range(L)])
     
-    # Reshape h for 2D convolution (make it a 2D array)
     h_2d = h.reshape((L, 1))
 
-    # Convolve signal with channel
     ofdm_frame_conv = convolve2d(ofdm_frame, h_2d, mode='full')[:ofdm_frame.shape[0], :ofdm_frame.shape[1]]
 
     # Add noise
-    SNR = 10**(SNR_dB / 10.0)  # Convert dB to linear
+    SNR = 10**(SNR_dB / 10.0) 
     signal_power = np.mean(np.abs(ofdm_frame_conv)**2)
     noise_power = signal_power / SNR
     noise = np.sqrt(noise_power / 2) * (np.random.randn(*ofdm_frame_conv.shape) + 1j*np.random.randn(*ofdm_frame_conv.shape))
@@ -178,55 +140,51 @@ def ofdm_demodulate(ofdm_frame_noisy, N_symbols, CP_length, K):
     ofdm_symbols_freq = np.zeros((N_symbols+1, K), dtype=complex) # N_symbols + 1 because of the preamble
     
     for i in range(N_symbols+1):
-        # Remove cyclic prefix: Assuming CP is at the start of the symbol
         symbol_without_cp = ofdm_frame_noisy[i, CP_length:CP_length+K]
         
-        # Perform FFT to convert the symbol back to the frequency domain
         ofdm_symbols_freq[i, :] = np.fft.fft(symbol_without_cp)
     
     return ofdm_symbols_freq
 
-
-
-def channel_estimation(received_preamble, original_preamble, K):
-     # Ensure preamble is in frequency domain
-    received_preamble_fd = np.fft.fft(received_preamble, n=K)
-    original_preamble_fd = np.fft.fft(original_preamble, n=K)
+def channel_estimation(received_preamble, original_preamble):
+    received_preamble_fd = np.fft.fft(received_preamble, n=80)
+    original_preamble_fd = np.fft.fft(original_preamble, n=80)
     
-    # Perform least squares estimation by dividing the received by the original (in frequency domain)
     H_est = received_preamble_fd / original_preamble_fd
     
-    # Smoothing
     H_est_smooth = np.array([np.convolve(h, np.ones(3)/3, mode='same') for h in H_est])
     
     return H_est_smooth
 
-def zf_equalize(ofdm_symbols_freq, channel_estimated, K_used, K):
-    
-    # Apply the channel estimation to the entire array of received symbols
-    # This assumes channel_estimated is for all K subcarriers
-    symbols_equalized_full = ofdm_symbols_freq / channel_estimated
+def zf_equalize(ofdm_symbols_freq, channel_estimated, K_used, K, N_symbols):
+    symbols_equalized = np.zeros((N_symbols, K_used), dtype=complex)  # Adjusted to N_symbols
 
-    # Extract only the used subcarriers for further processing
-    # Assuming used subcarriers are centered in the spectrum
     start_index = (K - K_used) // 2
-    end_index = start_index + K_used
-    symbols_equalized = symbols_equalized_full[start_index:end_index]
+    for i in range(N_symbols):         
+        symbols_equalized[i, :] = ofdm_symbols_freq[i + 1, start_index:start_index + K_used] / channel_estimated[i + 1, start_index:start_index + K_used]
 
     return symbols_equalized
 
+def nearest_neighbor_quantization(symbols):
+    constellation_points = [
+        -3-3j, -3-1j, -3+1j, -3+3j,
+        -1-3j, -1-1j, -1+1j, -1+3j,
+        1-3j,  1-1j,  1+1j,  1+3j,
+        3-3j,  3-1j,  3+1j,  3+3j
+    ]
+    
+    quantized_symbols = np.zeros(symbols.shape, dtype=complex)
+    
+    for i in range(symbols.shape[0]):
+        for j in range(symbols.shape[1]):
+            symbol = symbols[i, j]
+            distances = [np.abs(symbol - cp) for cp in constellation_points]
+            nearest_point_index = np.argmin(distances)
+            quantized_symbols[i, j] = constellation_points[nearest_point_index]
+    
+    return quantized_symbols
 
-""" def zf_equalize(ofdm_symbols_freq, channel_estimated, K_used, K):
-
-    # Equalize using ZF
-    H_est_full = np.zeros(K, dtype=complex)
-    H_est_full[(K-K_used)//2:(K+K_used)//2] = channel_estimated  # Place estimated channel in the middle
-    symbols_equalized = ofdm_symbols_freq / H_est_full
-
-    return symbols_equalized[(K-K_used)//2:(K+K_used)//2]  # Return only the used subcarriers
- """
 def demap_16qam(symbols):
-    # Inverse of the 16QAM mapping function
     bits = []
     for s in np.array(symbols).flatten():
         if np.real(s) < -2:
@@ -248,10 +206,9 @@ def demap_16qam(symbols):
             bits.append([1, 0])
     return np.array(bits).flatten()
 
+
 def compute_ber(transmitted_bits, received_bits):
-    # Compute the number of bit errors
     bit_errors = np.sum(transmitted_bits != received_bits)
-    # Compute BER
     ber = bit_errors / len(transmitted_bits)
     return ber
 
@@ -276,26 +233,20 @@ def main():
     # plot_constellation(symbols, title='16QAM Constellation Diagram')
     print("16QAM mapping completed : " + str(symbols.shape))
 
-    # Step 3: Generate preamble
-    # preamble_PTS = generate_preamble(K, CP_length)
-    preamble_length = K + CP_length
-    preamble = generate_zadoff_chu_seq(K, CP_length)
-
-    # Step 4: OFDM Modulation
-    ofdm_modulated = ofdm_modulate(symbols, preamble, N_symbols, K, K_used, CP_length)
-    # plot_constellation(ofdm_frame_with_preamble, title="test")
+    # Step 3: OFDM Modulation
+    ofdm_modulated = ofdm_modulate(symbols, N_symbols, K, K_used, CP_length)
     print("OFDM modulation completed : " + str(ofdm_modulated.shape))
 
-    # Step 4: Preamble Generation
-    
-    # preamble = generate_preamble(ofdm_frame_with_preamble)
+    # Step 4: Preamble
+    # preamble_PTS = generate_preamble(K, CP_length)
+    preamble_length = K + CP_length
+    preamble = generate_zadoff_chu_seq(K, CP_length) # made so that Fourrier transform will not give zero values
     ofdm_frame_with_preamble = insert_preamble(ofdm_modulated, preamble)
     print("Preamble inserted : " + str(ofdm_frame_with_preamble.shape))
 
     # Step 5: Channel Simulation
     ofdm_frame_noisy, channel_h = fading_channel(ofdm_frame_with_preamble, SNR_dB)
     # plot_channel_response(channel_h)
-
     print("Channel simulation completed : " + str(ofdm_frame_noisy.shape))
 
     # Step 6: OFDM Demodulation
@@ -303,22 +254,22 @@ def main():
     print("OFDM demodulation completed : " + str(ofdm_symbols_freq.shape)) 
 
     # Step 7: Channel Estimation
-    channel_estimated = channel_estimation(ofdm_frame_noisy[:preamble_length], preamble, K)
-    # plot_channel_response(channel_estimated)
+    channel_estimated = channel_estimation(ofdm_frame_noisy[:preamble_length], preamble)
     print("Channel estimation completed : " + str(channel_estimated.shape)) 
 
-    # Step 8: Coherent Detection and Demapping
-    symbols_equalized = zf_equalize(ofdm_symbols_freq, channel_estimated, K_used, K)
+    # Step 8: Equalization
+    symbols_equalized = zf_equalize(ofdm_symbols_freq, channel_estimated, K_used, K, N_symbols)
     print("Equalization completed : " + str(symbols_equalized.shape))
 
+    # Step 9: Nearest Neighbor Quantization
+    symbols_quantized = nearest_neighbor_quantization(symbols_equalized)
+    print("Nearest neighbor quantization completed : " + str(symbols_quantized.shape))
 
-    # nearest neighbor quantization
-
-    plot_constellation(symbols_equalized, title='Received OFDM symbols')
-    demapped_bits = demap_16qam(symbols_equalized)
+    # Step 10: Demapping 
+    demapped_bits = demap_16qam(symbols_quantized)
     print("Coherent detection and demapping completed : " + str(demapped_bits.shape)) 
 
-    # Step 9: BER Computation
+    # Step 11: BER Computation
     ber = compute_ber(source_bits, demapped_bits) 
     print(f"BER computation completed. BER = {ber}")
 
